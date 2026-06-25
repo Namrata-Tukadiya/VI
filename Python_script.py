@@ -10,14 +10,17 @@ import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, r2_score
 
-# ─── Config ───────────────────────────────────────────────────────────
+# =============================================================================
+# Configuration
+# =============================================================================
 API_KEY    = "......"
+# The target gates used for the final screening step.
 MIN_E_GPa  = 80.0    
 MIN_BG_eV  = 3.0     
 MAX_EHULL  = 0.05   
 IONIC_IONS = {"Li", "Na", "K"}
 TOP_N      = 5
-
+# Radioactive elements are excluded because they are not realistic candidates
 RADIOACTIVE = {
     "Tc","Pm","Po","At","Rn","Fr","Ra","Ac",
     "Th","Pa","U","Np","Pu","Am","Cm","Bk","Cf",
@@ -31,9 +34,9 @@ K_MAX = 700
 G_MAX = 500    
 E_MAX = 1300   
 
-# ======================================================================
-# 1.  FETCH DATA
-#
+# =============================================================================
+# Step 1: Fetch Materials Project data
+# =============================================================================
 #  The summary endpoint lists k_vrh/g_vrh as fields but returns all-NaN.
 #  Elastic moduli MUST come from the dedicated elasticity endpoint.
 # ======================================================================
@@ -81,7 +84,9 @@ for doc in elastic_docs:
 df_elastic = pd.DataFrame(elastic_rows)
 df_elastic["material_id"] = df_elastic["material_id"].astype(str).str.strip()
 print(f"  Elasticity:   {len(df_elastic):,} materials")
-
+#
+# Only materials with elasticity data are used for this surrogate model because
+# Young's modulus needs both bulk and shear modulus.
 df = df_summary.merge(df_elastic, on="material_id", how="inner")
 print(f"  After merge:  {len(df):,} materials with complete data")
 
@@ -96,12 +101,8 @@ df["youngs_modulus"] = (9 * df["k_vrh"] * df["g_vrh"]) / (3 * df["k_vrh"] + df["
 
 # ══════════════════════════════════════════════════════════════════════
 # FIX 1 — Remove outliers from the elastic dataset.
-#
-# The MP elasticity table contains some failed / unconverged DFT runs
-# that produce physically impossible values (e.g. k_vrh = 8×10¹² GPa).
-# These corrupt the XGBoost training and produce MAE ~ 10⁹ GPa (R²≈0).
-# We drop anything outside the physical range of known real materials.
-# ══════════════════════════════════════════════════════════════════════
+# Remove physically impossible elastic values before training. This protects the
+# regression model from learning from failed DFT entries instead of real trends.
 pre = len(df)
 df = df[
     (df["k_vrh"]          > 0) & (df["k_vrh"]          < K_MAX) &
@@ -115,9 +116,9 @@ print(f"  Young's mod:    {df['youngs_modulus'].min():.0f} – {df['youngs_modul
 print(f"  Band gap:       {df['band_gap'].min():.2f} – {df['band_gap'].max():.2f} eV")
 
 
-# ======================================================================
-# 2.  FEATURIZATION — MATMINER MAGPIE
-# ======================================================================
+# =============================================================================
+# Step 2: Featurization
+# =============================================================================
 print("\n" + "=" * 60)
 print("STEP 2 — Featurization with matminer (Magpie)")
 print("=" * 60)
@@ -136,7 +137,7 @@ print(f"  Magpie features generated     : {len(FEAT_COLS)}")
 
 
 # ======================================================================
-# 3.  TRAIN SURROGATE MODELS (XGBoost)
+# 3.  TRAIN XGBoost
 # ======================================================================
 print("\n" + "=" * 60)
 print("STEP 3 — Training XGBoost surrogate models")
@@ -193,7 +194,7 @@ def has_any(formula, eset):
         return False
 
 # ══════════════════════════════════════════════════════════════════════
-# FIX 2 — Filter by actual DFT values, not ML predictions.
+# Filter by actual DFT values, not ML predictions.
 #
 # We have DFT ground truth for every material in our screening pool.
 # Using it directly is more reliable than ML predictions.
