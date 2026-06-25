@@ -144,8 +144,8 @@ STEP 2 — Featurization with matminer (Magpie)
 
 | File | Description |
 |------|-------------|
-| `top5_candidates.csv` | Top-5 ranked candidates with all predicted properties |
-| `all_screened.csv` | Full dataset with ML predictions and filter flags for all materials |
+| `Top5.csv` | Top-5 ranked candidates with all predicted properties |
+| `Materials_Screened.csv` | Full dataset with ML predictions and filter flags for all materials |
 
 ### `top5_candidates.csv` columns
 
